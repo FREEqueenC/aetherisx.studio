@@ -48,7 +48,9 @@ class ConfigService(BaseSettings):
     INIT_VERTEX: bool = True
 
     # --- Google Identity ---
-    GOOGLE_TOKEN_AUDIENCE: str = ""
+    GOOGLE_TOKEN_AUDIENCE: str = (
+        "766520697417-1nj27fsrs98f9rtjpmq20gn856jpmq0v.apps.googleusercontent.com"
+    )
     ALLOWED_ORGS_STR: str = Field(default="", alias="IDENTITY_PLATFORM_ALLOWED_ORGS")
 
     # --- Storage ---

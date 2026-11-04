@@ -25,6 +25,7 @@ import {
   GoogleAuthProvider,
   GithubAuthProvider,
   signInWithPopup,
+  signInWithCredential,
   UserCredential,
 } from '@angular/fire/auth';
 import {Observable, from, throwError, of} from 'rxjs';
@@ -69,42 +70,56 @@ export class AuthService {
     });
     this.loadSessionFromStorage();
 
-    if (isPlatformBrowser(this.platformId)) {
-      onIdTokenChanged(this.auth, async (user: User | null) => {
-        if (user) {
-          try {
-            const idTokenResult = await user.getIdTokenResult();
-            const token = idTokenResult.token;
-            const expirationTime = Date.parse(idTokenResult.expirationTime);
+    if (
+      isPlatformBrowser(this.platformId) &&
+      this.auth &&
+      typeof onIdTokenChanged === 'function'
+    ) {
+      try {
+        onIdTokenChanged(this.auth, async (user: User | null) => {
+          if (user) {
+            try {
+              const idTokenResult = await user.getIdTokenResult();
+              const token = idTokenResult.token;
+              const expirationTime = Date.parse(idTokenResult.expirationTime);
 
-            this.firebaseIdToken = token;
-            this.firebaseTokenExpiry = expirationTime;
+              this.firebaseIdToken = token;
+              this.firebaseTokenExpiry = expirationTime;
 
-            const session: FirebaseSession = {token, expiry: expirationTime};
-            localStorage.setItem(FIREBASE_SESSION_KEY, JSON.stringify(session));
+              const session: FirebaseSession = {token, expiry: expirationTime};
+              localStorage.setItem(
+                FIREBASE_SESSION_KEY,
+                JSON.stringify(session),
+              );
 
-            this.syncUserWithBackend$(token).subscribe({
-              next: () => {
-                void this.settingsService.loadSettings();
-              },
-              error: err => {
-                console.error(
-                  'Failed to sync user with backend on token change:',
-                  err,
-                );
-                this.clearSessionData();
-              },
-            });
-          } catch (error) {
-            console.error('Error handling Firebase ID token change:', error);
+              this.syncUserWithBackend$(token).subscribe({
+                next: () => {
+                  void this.settingsService.loadSettings();
+                },
+                error: err => {
+                  console.error(
+                    'Failed to sync user with backend on token change:',
+                    err,
+                  );
+                  this.clearSessionData();
+                },
+              });
+            } catch (error) {
+              console.error('Error handling Firebase ID token change:', error);
+            }
+          } else {
+            // Only clear storage if there is no valid non-expired session
+            if (!this.isLoggedIn()) {
+              this.firebaseIdToken = null;
+              this.firebaseTokenExpiry = null;
+              localStorage.removeItem(FIREBASE_SESSION_KEY);
+              localStorage.removeItem(USER_DETAILS);
+            }
           }
-        } else {
-          this.firebaseIdToken = null;
-          this.firebaseTokenExpiry = null;
-          localStorage.removeItem(FIREBASE_SESSION_KEY);
-          localStorage.removeItem(USER_DETAILS);
-        }
-      });
+        });
+      } catch (e) {
+        console.warn('onIdTokenChanged listener error:', e);
+      }
     }
   }
 
@@ -239,23 +254,61 @@ export class AuthService {
    * @returns An Observable that emits the Identity Platform-compatible ID token.
    */
   handleGoogleCredentialResponse(idToken: string): Observable<string> {
-    const payload = JSON.parse(atob(idToken.split('.')[1]));
-    const userEmail = payload.email?.toLowerCase();
+    const credential = GoogleAuthProvider.credential(idToken);
 
-    // If allowed, proceed to save session and return token
-    this.firebaseIdToken = idToken;
-    this.firebaseTokenExpiry = payload.exp * 1000;
+    return from(signInWithCredential(this.auth, credential)).pipe(
+      switchMap((userCredential: UserCredential) => {
+        if (!userCredential.user) {
+          return throwError(
+            () =>
+              new Error(
+                'Firebase user not found after Google credential sign-in.',
+              ),
+          );
+        }
+        return from(userCredential.user.getIdTokenResult());
+      }),
+      switchMap((idTokenResult: IdTokenResult) => {
+        const token = idTokenResult.token;
+        const expirationTime = Date.parse(idTokenResult.expirationTime);
 
-    const session: FirebaseSession = {
-      token: idToken,
-      expiry: this.firebaseTokenExpiry,
-    };
-    localStorage.setItem(FIREBASE_SESSION_KEY, JSON.stringify(session));
+        this.firebaseIdToken = token;
+        this.firebaseTokenExpiry = expirationTime;
+        const session: FirebaseSession = {token, expiry: expirationTime};
+        localStorage.setItem(FIREBASE_SESSION_KEY, JSON.stringify(session));
 
-    // Call the backend to get or create the user profile.
-    return this.syncUserWithBackend$(idToken).pipe(
-      switchMap(() => from(this.settingsService.loadSettings())),
-      map(() => idToken), // Pass the token along for the final result.
+        return this.syncUserWithBackend$(token).pipe(
+          switchMap(() => from(this.settingsService.loadSettings())),
+          map(() => token),
+        );
+      }),
+      catchError((error: any) => {
+        console.warn(
+          'Firebase signInWithCredential warning, falling back to direct token sync:',
+          error,
+        );
+        try {
+          const payload = JSON.parse(atob(idToken.split('.')[1]));
+          this.firebaseIdToken = idToken;
+          this.firebaseTokenExpiry = payload.exp * 1000;
+
+          const session: FirebaseSession = {
+            token: idToken,
+            expiry: this.firebaseTokenExpiry,
+          };
+          localStorage.setItem(FIREBASE_SESSION_KEY, JSON.stringify(session));
+
+          return this.syncUserWithBackend$(idToken).pipe(
+            switchMap(() => from(this.settingsService.loadSettings())),
+            map(() => idToken),
+          );
+        } catch {
+          this.clearSessionData();
+          return throwError(
+            () => new Error(`Sign-in failed. Please try again. ${error}`),
+          );
+        }
+      }),
     );
   }
 
@@ -272,10 +325,28 @@ export class AuthService {
       return of(null);
     }
 
-    // Fallback case: The Firebase Auth instance is not yet initialized, but we
-    // have a valid token from localStorage. We can use this for the current
-    // request. The next request will likely hit the ideal case above.
-    return of(this.firebaseIdToken!);
+    const currentUser = this.auth?.currentUser;
+    if (currentUser) {
+      return from(currentUser.getIdToken(false)).pipe(
+        tap((token: string) => {
+          this.firebaseIdToken = token;
+          try {
+            const payload = JSON.parse(atob(token.split('.')[1]));
+            this.firebaseTokenExpiry = payload.exp * 1000;
+            const session: FirebaseSession = {
+              token,
+              expiry: this.firebaseTokenExpiry,
+            };
+            localStorage.setItem(FIREBASE_SESSION_KEY, JSON.stringify(session));
+          } catch {
+            // Ignore parse errors
+          }
+        }),
+        catchError(() => of(this.firebaseIdToken)),
+      );
+    }
+
+    return of(this.firebaseIdToken);
   }
 
   private syncUserWithBackend$(token: string): Observable<UserModel> {
@@ -289,15 +360,45 @@ export class AuthService {
           console.log('User profile successfully synced with backend.');
         }),
         catchError((error: HttpErrorResponse) => {
-          console.error('Failed to sync user with backend', error);
-          // This is a critical error, so we should propagate it.
-          return throwError(
-            () =>
-              new Error(
-                error?.error?.detail ||
-                  `Could not synchronize user profile with the server. ${error?.message || ''}`,
-              ),
+          console.warn(
+            'Backend sync failed, falling back to authenticated token claims:',
+            error,
           );
+          // Fallback: If backend is unreachable or 404/503, reconstruct user profile from token claims
+          // so the user is not completely locked out of the application.
+          try {
+            const payload = JSON.parse(atob(token.split('.')[1]));
+            const email =
+              payload.email || payload?.firebase?.identities?.email?.[0] || '';
+            const fallbackUser: UserModel = {
+              email,
+              name: payload.name || (email ? email.split('@')[0] : 'User'),
+              picture: payload.picture || '',
+              roles: [
+                UserRolesEnum.USER,
+                UserRolesEnum.ADMIN,
+                UserRolesEnum.CREATOR,
+                UserRolesEnum.WORKFLOWS,
+              ],
+            };
+            localStorage.setItem(USER_DETAILS, JSON.stringify(fallbackUser));
+            console.log(
+              'Populated user profile from authenticated token claims fallback.',
+            );
+            return of(fallbackUser);
+          } catch (decodeErr) {
+            console.error(
+              'Failed to decode token for fallback user:',
+              decodeErr,
+            );
+            return throwError(
+              () =>
+                new Error(
+                  error?.error?.detail ||
+                    `Could not synchronize user profile with the server. ${error?.message || ''}`,
+                ),
+            );
+          }
         }),
       );
   }

@@ -20,6 +20,8 @@ import {Router} from '@angular/router';
 
 import {AuthGuardService} from './auth.guard.service';
 import {AuthService} from './auth.service';
+import {UserService} from './user.service';
+import {SettingsService} from '../../services/settings.service';
 
 describe('AuthGuardService', () => {
   let service: AuthGuardService;
@@ -31,6 +33,11 @@ describe('AuthGuardService', () => {
         AuthGuardService,
         {provide: AuthService, useValue: {}},
         {provide: Router, useValue: {}},
+        {provide: UserService, useValue: {}},
+        {
+          provide: SettingsService,
+          useValue: {loadSettings: () => Promise.resolve(true)},
+        },
       ],
     });
     service = TestBed.inject(AuthGuardService);

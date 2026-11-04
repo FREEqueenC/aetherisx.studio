@@ -54,27 +54,50 @@ async def get_current_user(
     5. Returns a Pydantic model with the user's data.
     """
     try:
-        decoded_token = {}
-        if config_service.ENVIRONMENT == "local":
-            # --- Local: Use Firebase Auth ---
-            # Verifies the token using the standard Firebase Admin SDK method.
-            logger.info("Verifying token using Firebase Admin SDK...")
+        decoded_token = None
+        verification_error = None
+
+        # 1. Try Firebase Admin SDK verification first (for Firebase ID tokens: Google, GitHub, etc.)
+        try:
             decoded_token = await asyncio.to_thread(auth.verify_id_token, token)
-        else:
-            # --- Development/Production: Use Google Identity Platform
-            # (OIDC) ---
-            # Verifies the Google-issued OIDC ID token. The audience must be the
-            # OAuth 2.0 client ID of the Identity Platform-protected resource.
-            google_token_audience = config_service.GOOGLE_TOKEN_AUDIENCE.strip()
-            decoded_token = await asyncio.to_thread(
-                id_token.verify_oauth2_token,
-                token,
-                google_auth_requests.Request(),
-                audience=google_token_audience,
+            logger.info("Successfully verified token using Firebase Admin SDK")
+        except Exception as fb_err:
+            verification_error = fb_err
+            logger.debug(
+                "Firebase token verification failed (%s), attempting Google OIDC verification...",
+                fb_err,
             )
 
+        # 2. Fall back to Google Identity Platform / OIDC verification (for direct GIS tokens)
+        if not decoded_token:
+            try:
+                audience = config_service.GOOGLE_TOKEN_AUDIENCE.strip() or None
+                decoded_token = await asyncio.to_thread(
+                    id_token.verify_oauth2_token,
+                    token,
+                    google_auth_requests.Request(),
+                    audience=audience,
+                )
+                logger.info("Successfully verified token using Google OIDC")
+            except Exception as oidc_err:
+                logger.error(
+                    "Token verification failed. Firebase error: %s; Google OIDC error: %s",
+                    verification_error,
+                    oidc_err,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail=f"Invalid authentication token: {oidc_err}",
+                ) from oidc_err
+
         email = decoded_token.get("email")
-        name = decoded_token.get("name")
+        if not email:
+            # Check Firebase identities fallback
+            identities = decoded_token.get("firebase", {}).get("identities", {})
+            if "email" in identities and identities["email"]:
+                email = identities["email"][0]
+
+        name = decoded_token.get("name") or (email.split("@")[0] if email else "User")
         picture = decoded_token.get("picture", "")
         token_info_hd = decoded_token.get("hd")
 

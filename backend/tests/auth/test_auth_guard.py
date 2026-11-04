@@ -108,6 +108,54 @@ class TestGetCurrentUser:
         assert exc_info.value.status_code == 401
         assert "not part of an allowed organization" in exc_info.value.detail
 
+    @pytest.mark.anyio
+    @patch("src.auth.auth_guard.id_token.verify_oauth2_token")
+    @patch("src.auth.auth_guard.auth.verify_id_token")
+    async def test_get_current_user_google_oidc_fallback(
+        self, mock_fb_verify, mock_oidc_verify, mock_user_service
+    ):
+        config_service.ALLOWED_ORGS_STR = ""
+        # Firebase fails with InvalidIdTokenError (e.g. token is Google OIDC)
+        from firebase_admin.auth import InvalidIdTokenError
+        mock_fb_verify.side_effect = InvalidIdTokenError("Wrong issuer")
+
+        # Google OIDC succeeds
+        mock_oidc_verify.return_value = {
+            "email": "googleuser@example.com",
+            "name": "Google User",
+            "picture": "http://example.com/pic2.jpg",
+        }
+
+        user = await get_current_user(
+            token="google_oidc_token",
+            user_service=mock_user_service,
+        )
+
+        assert user.email == "test@example.com"
+        mock_user_service.create_user_if_not_exists.assert_called_once_with(
+            email="googleuser@example.com",
+            name="Google User",
+            picture="http://example.com/pic2.jpg",
+        )
+
+    @pytest.mark.anyio
+    @patch("src.auth.auth_guard.id_token.verify_oauth2_token")
+    @patch("src.auth.auth_guard.auth.verify_id_token")
+    async def test_get_current_user_both_fail(
+        self, mock_fb_verify, mock_oidc_verify, mock_user_service
+    ):
+        config_service.ALLOWED_ORGS_STR = ""
+        mock_fb_verify.side_effect = Exception("Firebase invalid")
+        mock_oidc_verify.side_effect = Exception("OIDC invalid")
+
+        with pytest.raises(HTTPException) as exc_info:
+            await get_current_user(
+                token="bad_token", user_service=mock_user_service
+            )
+
+        assert exc_info.value.status_code == 401
+        assert "Invalid authentication token" in exc_info.value.detail
+
 
 class TestRoleChecker:
     """Tests for RoleChecker class."""

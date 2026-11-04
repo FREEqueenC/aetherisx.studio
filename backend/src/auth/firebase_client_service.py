@@ -57,15 +57,20 @@ class FirebaseClient:
                     # Credentials (ADC).
                     # This is typical for Cloud Run, GCE, GKE, App Engine, etc.
                     logger.info("Initializing Firebase Admin SDK using ADC.")
-                    firebase_admin.initialize_app()
-                    # If ADC are not found or lack permissions, this
-                    # will raise an error.
-                    # e.g., google.auth.exceptions.DefaultCredentialsError
+                    try:
+                        from src.config.config_service import config_service
+                        options = {"projectId": config_service.PROJECT_ID} if config_service.PROJECT_ID else None
+                    except Exception:
+                        options = None
+                    firebase_admin.initialize_app(options=options)
 
                 logger.info("Firebase App Name: %s", firebase_admin.get_app().name)
 
-                # Check if reauthentication is needed
-                self.check_adc_authentication()
+                # Check if reauthentication is needed (diagnostic only)
+                try:
+                    self.check_adc_authentication()
+                except Exception as adc_err:
+                    logger.warning("ADC diagnostic check warning: %s", adc_err)
 
         except Exception as e:
             logger.critical(
@@ -88,15 +93,11 @@ class FirebaseClient:
             # 1. Attempt to find and load ADC
             creds, project_id = google.auth.default()
 
-            # If no project ID is found, credentials might be for
-            # a service account but we need a project to make a test
-            # call.
             if not project_id:
                 logger.warning(
                     "Could not determine project ID from ADC. "
                     "Unable to perform a live authentication check.",
                 )
-                # You might still consider this a success if credentials exist
                 return creds is not None
 
             logger.info(
@@ -104,19 +105,17 @@ class FirebaseClient:
                 project_id,
             )
 
-            # 2. Make a lightweight, authenticated API call to
-            # test the credentials
+            # 2. Make a lightweight, authenticated API call to test the credentials
             client = resourcemanager_v3.ProjectsClient(credentials=creds)  # type: ignore
             project_name = f"projects/{project_id}"
             client.get_project(
                 name=project_name,
-            )  # This call requires 'resourcemanager.projects.get' permission
+            )
 
             logger.info("✅ ADC Authentication successful.")
             return True
 
         except RefreshError as e:
-            # This is the specific error for expired user credentials
             logger.critical(
                 "❌ ADC REAUTHENTICATION NEEDED. Please run "
                 "`gcloud auth application-default login`. Details: %s",
@@ -124,10 +123,9 @@ class FirebaseClient:
             )
             raise e
         except Exception as e:
-            # Catch other potential exceptions (e.g., permissions,
-            # project not found)
-            logger.error("An unexpected error occurred during ADC check: %s", e)
-            raise e
+            # Catch other potential non-fatal exceptions (e.g., permissions, project not found)
+            logger.warning("An unexpected error occurred during ADC check: %s. Continuing...", e)
+            return False
 
 
 firebase_client = FirebaseClient()
