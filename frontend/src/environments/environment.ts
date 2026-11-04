@@ -23,7 +23,7 @@ export const environment = {
     messagingSenderId: '766520697417',
     appId: '1:766520697417:web:b2ca7bf0bf195efff91598',
   },
-  production: true,
+  production: false,
   isLocal: true,
   backendURL: 'http://localhost:8080/api',
   EMAIL_REGEX:

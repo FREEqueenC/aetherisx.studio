@@ -23,6 +23,7 @@ $ENV_VARS = @(
     "GOOGLE_CLOUD_PROJECT=$PROJECT_ID",
     "PROJECT_ID=$PROJECT_ID",
     "FRONTEND_URL=https://aetherisx.studio",
+    "GOOGLE_TOKEN_AUDIENCE=766520697417-1nj27fsrs98f9rtjpmq20gn856jpmq0v.apps.googleusercontent.com",
     "GENMEDIA_BUCKET=$PROJECT_ID-cs-development-bucket", # Matches standard deployment bucket names
     "SIGNING_SA_EMAIL=$SIGNING_SA_EMAIL",
     "INSTANCE_CONNECTION_NAME=$DB_CONNECTION_NAME"

@@ -40,7 +40,8 @@ interface LooseObject {
 })
 export class LoginComponent {
   private readonly provider: GoogleAuthProvider = new GoogleAuthProvider();
-  private readonly githubProvider: GithubAuthProvider = new GithubAuthProvider();
+  private readonly githubProvider: GithubAuthProvider =
+    new GithubAuthProvider();
 
   loader = false;
   invalidLogin = false;
@@ -62,21 +63,58 @@ export class LoginComponent {
 
   ngOnInit(): void {
     if (this.isBrowser) {
-      google.accounts.id.initialize({
-        client_id: environment.GOOGLE_CLIENT_ID,
-        callback: this.handleCredentialResponse.bind(this),
-        auto_select: false,
-        cancel_on_tap_outside: true,
-      });
-      google.accounts.id.renderButton(
-        document.getElementById('google-signin-button'),
-        {theme: 'outline', size: 'large', width: '300'},
-      );
-      google.accounts.id.renderButton(
-        document.getElementById('google-signin-button-desktop'),
-        {theme: 'outline', size: 'large', width: '300'},
-      );
+      this.initGoogleSignIn();
     }
+  }
+
+  private initGoogleSignIn(retryCount = 0): void {
+    if (typeof google !== 'undefined' && google?.accounts?.id) {
+      try {
+        google.accounts.id.initialize({
+          client_id: environment.GOOGLE_CLIENT_ID,
+          callback: this.handleCredentialResponse.bind(this),
+          auto_select: false,
+          cancel_on_tap_outside: true,
+        });
+        const mobileBtn = document.getElementById('google-signin-button');
+        if (mobileBtn) {
+          google.accounts.id.renderButton(mobileBtn, {
+            theme: 'outline',
+            size: 'large',
+            width: '300',
+          });
+        }
+        const desktopBtn = document.getElementById(
+          'google-signin-button-desktop',
+        );
+        if (desktopBtn) {
+          google.accounts.id.renderButton(desktopBtn, {
+            theme: 'outline',
+            size: 'large',
+            width: '300',
+          });
+        }
+      } catch (e) {
+        console.error('Failed to initialize Google Sign-In:', e);
+      }
+    } else if (retryCount < 20) {
+      setTimeout(() => this.initGoogleSignIn(retryCount + 1), 250);
+    }
+  }
+
+  loginWithGooglePopup() {
+    this.loader = true;
+    this.authService.signInWithGoogleFirebase().subscribe({
+      next: () => {
+        this.ngZone.run(() => {
+          this.loader = false;
+          void this.router.navigate([HOME_ROUTE]);
+        });
+      },
+      error: (error: any) => {
+        this.handleLoginError(error);
+      },
+    });
   }
 
   handleCredentialResponse(response: any) {
@@ -98,7 +136,7 @@ export class LoginComponent {
 
   private handleLoginError(error: any, postErrorAction?: () => void) {
     this.loader = false;
-    handleErrorSnackbar(this._snackBar, error, 'Login Error');
+    handleErrorSnackbar(this._snackBar, error, 'Login Error', 20000);
     if (postErrorAction) {
       postErrorAction();
     }
