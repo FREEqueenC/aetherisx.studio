@@ -176,4 +176,3 @@ async def nicole_chat_endpoint(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"NICOLE Oracle was unable to formulate a revelation: {e}",
         )
-

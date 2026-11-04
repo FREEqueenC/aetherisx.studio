@@ -97,8 +97,6 @@ class BrandGuidelineModel(BaseDocument):
         description="List of hex color codes (e.g., '#FFFFFF') extracted from the PDF or entered manually.",
     )
 
-    # TODO: We should be able to add the logo and then how it looks
-    # logo_description: Optional[str]
     logo_asset_id: int | None = Field(
         default=None,
         description="The ID of a document in the 'user_assets' collection to be used as the logo.",

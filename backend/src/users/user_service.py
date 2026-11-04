@@ -43,9 +43,21 @@ class UserService:
         if existing_user:
             # Auto-promote Ashleigh's emails to ADMIN & WORKFLOWS if not already set
             email_lower = existing_user.email.lower()
-            if email_lower in ["ashleighwalker@anwfoundations.com", "ashleigh4533@gmail.com"] or "ashleigh11911" in email_lower:
-                if UserRoleEnum.ADMIN not in existing_user.roles or UserRoleEnum.WORKFLOWS not in existing_user.roles:
-                    new_roles = list(set(existing_user.roles + [UserRoleEnum.ADMIN, UserRoleEnum.WORKFLOWS]))
+            if (
+                email_lower
+                in ["ashleighwalker@anwfoundations.com", "ashleigh4533@gmail.com"]
+                or "ashleigh11911" in email_lower
+            ):
+                if (
+                    UserRoleEnum.ADMIN not in existing_user.roles
+                    or UserRoleEnum.WORKFLOWS not in existing_user.roles
+                ):
+                    new_roles = list(
+                        set(
+                            existing_user.roles
+                            + [UserRoleEnum.ADMIN, UserRoleEnum.WORKFLOWS]
+                        )
+                    )
                     await self.user_repo.update(existing_user.id, {"roles": new_roles})
                     existing_user.roles = new_roles
             return existing_user
@@ -64,7 +76,11 @@ class UserService:
         # We can pass a dict that includes roles.
         user_data = new_user_dto.model_dump()
         email_lower = email.lower()
-        if email_lower in ["ashleighwalker@anwfoundations.com", "ashleigh4533@gmail.com"] or "ashleigh11911" in email_lower:
+        if (
+            email_lower
+            in ["ashleighwalker@anwfoundations.com", "ashleigh4533@gmail.com"]
+            or "ashleigh11911" in email_lower
+        ):
             user_data["roles"] = [UserRoleEnum.ADMIN, UserRoleEnum.WORKFLOWS]
         else:
             user_data["roles"] = [UserRoleEnum.USER]

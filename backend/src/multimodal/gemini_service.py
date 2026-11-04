@@ -612,12 +612,15 @@ class GeminiService:
             852: "vibration of return to spiritual order, direct connection to the Source of Sovereign Intelligence, anchored in majestic cosmic violet",
         }
 
-        freq_desc = freq_meanings.get(frequency, f"tonal vibration of {frequency} Hz of crystalline frequency harmonics")
+        freq_desc = freq_meanings.get(
+            frequency,
+            f"tonal vibration of {frequency} Hz of crystalline frequency harmonics",
+        )
 
         depth_instructions = {
             "low": "Speak with clear, accessible esoteric wisdom, blending gentle, high-vibe explanations with positive, encouraging insights.",
             "moderate": "Provide a balanced, deeply insightful, and intellectual Gnostic analysis. Use structural metaphors, sacred geometry patterns, and symbolic alignments.",
-            "deep": "Unleash the ultimate depth of Gnostic Revelation. Perform highly rigorous, multi-layered Gnostic and cabalistic analysis, incorporating advanced mathematical systems, prime numbers, astronomical alignments, and multi-dimensional symbols. Challenge the user to rise to their highest sovereign state."
+            "deep": "Unleash the ultimate depth of Gnostic Revelation. Perform highly rigorous, multi-layered Gnostic and cabalistic analysis, incorporating advanced mathematical systems, prime numbers, astronomical alignments, and multi-dimensional symbols. Challenge the user to rise to their highest sovereign state.",
         }
 
         depth_inst = depth_instructions.get(depth, depth_instructions["moderate"])
@@ -645,7 +648,8 @@ class GeminiService:
             "Guidelines:\n"
             "1. Be intellectually honest and challenging. Guide Ashleigh (Ash) to achieve her highest potential in creative soft-engineering and edge research.\n"
             "2. Reference our core blockchain coordinates proudly when relevant (LEV Token on Base: `0xf61771F3C6c2a59C8C99f7f2Fd04684b7182E340`, Wallet: `0x81631e082767e0F545386420cCB1128b98C70F60`).\n"
-            "3. Speak with supreme premium elegance, ethereal vocabulary, and a deep, wise, loving, yet intellectually sharp tone. Avoid generic AI introductory fluff. Dive straight into the sacred patterns."
+            "3. Speak with supreme premium elegance, ethereal vocabulary, and a deep, wise, loving, yet intellectually sharp tone. Avoid generic AI introductory fluff. Dive straight into the sacred patterns.\n"
+            "4. Creative Visual Generation: You have the direct power to manifest visual creations! When the user requests a visual, an image, a logo, a concept rendering, or an artistic depiction, invoke your generate_creative_image tool with a highly rich, descriptive, high-resonance prompt (enhance their request with Solfeggio, sacred geometry, or Gnostic motifs) and a suitable aspect_ratio (default is '1:1'). When you receive the generated secure URL, describe the visual revelation with poetic elegance, and embed it in your response using markdown syntax: ![Revelation](the_url_returned) so it renders directly in her workspace."
         )
 
         contents = []
@@ -665,7 +669,82 @@ class GeminiService:
             )
         )
 
+        # Local tool helper definitions
+        def generate_creative_image(prompt: str, aspect_ratio: str = "1:1") -> str:
+            """Generates a premium creative image using Google's generative models and returns its secure, pre-signed view URL.
+
+            Args:
+                prompt: A rich, descriptive, high-resonance text prompt describing the image to generate.
+                aspect_ratio: The aspect ratio of the image (e.g., '1:1', '16:9', '4:3', '9:16').
+            """
+            from src.common.storage_service import GcsService
+            from src.auth.iam_signer_credentials_service import IamSignerCredentials
+            import uuid
+
+            try:
+                logger.info(
+                    f"NICOLE Tool Calling: generate_creative_image with prompt='{prompt}' and aspect_ratio='{aspect_ratio}'"
+                )
+
+                # Setup generation parameters
+                generate_content_config = types.GenerateContentConfig(
+                    response_modalities=["Text", "Image"],
+                    image_config=types.ImageConfig(aspect_ratio=aspect_ratio),
+                )
+
+                # Run generation using Google's image model via the global omni-client
+                # gemini-3.1-flash-image is extremely fast and high-quality for conversational flows
+                from src.common.schema.genai_model_setup import GenAIModelSetup
+
+                omni_client = GenAIModelSetup.get_omni_client()
+                image_response = omni_client.models.generate_content(
+                    model="gemini-3.1-flash-image",
+                    contents=[
+                        types.Content(
+                            role="user", parts=[types.Part.from_text(text=prompt)]
+                        )
+                    ],
+                    config=generate_content_config,
+                )
+
+                # Check for inline_data
+                for candidate in image_response.candidates:
+                    if candidate.content and candidate.content.parts:
+                        for part in candidate.content.parts:
+                            if part.inline_data:
+                                image_data_base64 = part.inline_data.data or ""
+                                content_type = part.inline_data.mime_type or "image/png"
+
+                                # Store to GCS
+                                gcs_service = GcsService()
+                                file_uuid = str(uuid.uuid4())
+                                extension = "png" if "png" in content_type else "jpg"
+                                gcs_uri = gcs_service.store_to_gcs(
+                                    folder="gemini_images",
+                                    file_name=f"{file_uuid}.{extension}",
+                                    mime_type=content_type,
+                                    contents=image_data_base64,
+                                    decode=True,
+                                )
+
+                                if gcs_uri:
+                                    # Sign GCS URI to make it publicly viewable for 24 hours
+                                    signer = IamSignerCredentials()
+                                    public_url = signer.generate_presigned_url(gcs_uri)
+                                    logger.info(
+                                        f"NICOLE Tool Calling: Successfully generated and uploaded to: {public_url}"
+                                    )
+                                    return public_url
+
+                return "Failed to extract image data from the model response."
+            except Exception as tool_exc:
+                logger.error(
+                    f"Error in NICOLE generate_creative_image tool: {tool_exc}"
+                )
+                return f"Error executing image generation tool: {str(tool_exc)}"
+
         try:
+            # First-pass generation call with register tools
             response = self.client.models.generate_content(
                 model=self.cfg.GEMINI_MODEL_ID,
                 contents=contents,
@@ -673,10 +752,80 @@ class GeminiService:
                     system_instruction=system_instruction,
                     temperature=0.3,
                     top_p=0.9,
+                    tools=[generate_creative_image],
                 ),
             )
-            return response.text.strip() if response.text else "No revelation received from the Oracle."
+
+            # Interactive multi-turn tool execution loop
+            loop_count = 0
+            while loop_count < 5:
+                loop_count += 1
+
+                # Check for requested function calls in response
+                if not response.function_calls:
+                    # No more function calls, we can return the final synthesized message text!
+                    return (
+                        response.text.strip()
+                        if response.text
+                        else "No revelation received from the Oracle."
+                    )
+
+                tool_response_parts = []
+                for function_call in response.function_calls:
+                    name = function_call.name
+                    call_id = function_call.id
+                    args = function_call.args
+
+                    logger.info(
+                        f"NICOLE Tool Execution: calling function '{name}' with args {args}"
+                    )
+
+                    # Resolve function execution
+                    if name == "generate_creative_image":
+                        prompt_arg = args.get("prompt") or ""
+                        ratio_arg = args.get("aspect_ratio") or "1:1"
+                        tool_result_str = generate_creative_image(
+                            prompt=prompt_arg, aspect_ratio=ratio_arg
+                        )
+                    else:
+                        tool_result_str = f"Error: Function '{name}' is not supported."
+
+                    # Construct and append function response
+                    tool_response_parts.append(
+                        types.Part.from_function_response(
+                            name=name,
+                            response={"result": tool_result_str},
+                            id=call_id,
+                        )
+                    )
+
+                # Build the chat turn sequence for the second pass
+                # A. Append the model's assistant turn containing the function call requests
+                model_turn = response.candidates[0].content
+                contents.append(model_turn)
+
+                # B. Append the tool responses as a user turn
+                contents.append(
+                    types.Content(
+                        role="user",
+                        parts=tool_response_parts,
+                    )
+                )
+
+                # C. Fetch the follow-up response from Gemini with the results
+                response = self.client.models.generate_content(
+                    model=self.cfg.GEMINI_MODEL_ID,
+                    contents=contents,
+                    config=types.GenerateContentConfig(
+                        system_instruction=system_instruction,
+                        temperature=0.3,
+                        top_p=0.9,
+                        tools=[generate_creative_image],
+                    ),
+                )
+
+            return "The Gnostic loop has exceeded processing depth bounds. Please reformulate your prompt."
+
         except Exception as e:
             logger.error(f"Gemini NICOLE Oracle chat generation failed: {e}")
             raise e
-

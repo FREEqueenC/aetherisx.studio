@@ -59,18 +59,24 @@ logger = logging.getLogger(__name__)
 GEMINI_PDF_LIMIT_BYTES = 50 * 1024 * 1024
 
 
-def _update_guideline_status_to_failed(guideline_id: int, error: Exception, worker_name: str):
+def _update_guideline_status_to_failed(
+    guideline_id: int, error: Exception, worker_name: str
+):
     """Helper function to update a brand guideline status to FAILED in a fresh database session,
     used in case of worker initialization or event loop failures.
     """
     import asyncio
     import logging
     from src.database import WorkerDatabase
-    from src.brand_guidelines.repository.brand_guideline_repository import BrandGuidelineRepository
+    from src.brand_guidelines.repository.brand_guideline_repository import (
+        BrandGuidelineRepository,
+    )
     from src.common.schema.media_item_model import JobStatusEnum
 
     logger = logging.getLogger(__name__)
-    logger.info(f"Setting brand guideline {guideline_id} to FAILED due to outer exception in {worker_name}")
+    logger.info(
+        f"Setting brand guideline {guideline_id} to FAILED due to outer exception in {worker_name}"
+    )
 
     async def _async_update():
         async with WorkerDatabase() as db_factory:

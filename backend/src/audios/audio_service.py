@@ -51,7 +51,9 @@ from src.users.user_model import UserModel
 logger = logging.getLogger(__name__)
 
 
-def _update_job_status_to_failed(media_item_id: int, error: Exception, worker_name: str):
+def _update_job_status_to_failed(
+    media_item_id: int, error: Exception, worker_name: str
+):
     """Helper function to update a media item status to FAILED in a fresh database session,
     used in case of worker initialization or event loop failures.
     """
@@ -62,7 +64,9 @@ def _update_job_status_to_failed(media_item_id: int, error: Exception, worker_na
     from src.common.schema.media_item_model import JobStatusEnum
 
     logger = logging.getLogger(__name__)
-    logger.info(f"Setting job {media_item_id} to FAILED due to outer exception in {worker_name}")
+    logger.info(
+        f"Setting job {media_item_id} to FAILED due to outer exception in {worker_name}"
+    )
 
     async def _async_update():
         async with WorkerDatabase() as db_factory:
@@ -287,7 +291,10 @@ def _process_audio_in_background(
 
                                     # Enhance prompt with Solfeggio frequency if specified
                                     final_prompt = request_dto.prompt
-                                    if request_dto.solfeggio_frequency and request_dto.solfeggio_frequency != "none":
+                                    if (
+                                        request_dto.solfeggio_frequency
+                                        and request_dto.solfeggio_frequency != "none"
+                                    ):
                                         freq = request_dto.solfeggio_frequency
                                         meanings = {
                                             "396": "tuned to 396Hz Solfeggio frequency (Liberating Guilt and Fear)",
@@ -297,10 +304,15 @@ def _process_audio_in_background(
                                             "639": "tuned to 639Hz Solfeggio frequency (Harmonious Connection and Relationships)",
                                             "741": "tuned to 741Hz Solfeggio frequency (Awakening Intuition and Cleansing)",
                                             "852": "tuned to 852Hz Solfeggio frequency (Returning to Spiritual Order and Unconditional Love)",
-                                            "963": "tuned to 963Hz Solfeggio frequency (Pure Divine Consciousness and Crown Chakra activation)"
+                                            "963": "tuned to 963Hz Solfeggio frequency (Pure Divine Consciousness and Crown Chakra activation)",
                                         }
-                                        resonance_msg = meanings.get(freq, f"tuned to {freq}Hz Solfeggio harmonic frequency")
-                                        final_prompt = f"{final_prompt}, {resonance_msg}"
+                                        resonance_msg = meanings.get(
+                                            freq,
+                                            f"tuned to {freq}Hz Solfeggio harmonic frequency",
+                                        )
+                                        final_prompt = (
+                                            f"{final_prompt}, {resonance_msg}"
+                                        )
 
                                     instance_dict = {"prompt": final_prompt}
                                     if request_dto.negative_prompt:
@@ -350,7 +362,9 @@ def _process_audio_in_background(
                         elif request_dto.model in AudioService.INWORLD_MODELS:
                             api_key = cfg.INWORLD_API_KEY
                             if not api_key:
-                                raise ValueError("INWORLD_API_KEY is not configured in the environment.")
+                                raise ValueError(
+                                    "INWORLD_API_KEY is not configured in the environment."
+                                )
 
                             async def generate_inworld(index: int) -> str | None:
                                 try:
@@ -372,31 +386,32 @@ def _process_audio_in_background(
                                         language = "AUTO"
 
                                     import httpx
+
                                     headers = {
                                         "Authorization": f"Basic {api_key}",
-                                        "Content-Type": "application/json"
+                                        "Content-Type": "application/json",
                                     }
                                     payload = {
                                         "text": request_dto.prompt,
                                         "voiceId": voice_id,
                                         "modelId": "inworld-tts-2",
                                         "timestampType": "WORD",
-                                        "audioConfig": {
-                                            "speakingRate": 1
-                                        },
+                                        "audioConfig": {"speakingRate": 1},
                                         "deliveryMode": "BALANCED",
-                                        "language": language
+                                        "language": language,
                                     }
                                     async with httpx.AsyncClient() as client:
                                         response = await client.post(
                                             "https://api.inworld.ai/tts/v1/voice",
                                             json=payload,
                                             headers=headers,
-                                            timeout=60.0
+                                            timeout=60.0,
                                         )
                                         response.raise_for_status()
                                         res_data = response.json()
-                                        audio_content = base64.b64decode(res_data["audioContent"])
+                                        audio_content = base64.b64decode(
+                                            res_data["audioContent"]
+                                        )
 
                                     file_name = f"inworld_{media_item_id}_{uid_short}_{index}.mp3"
                                     return gcs_service.store_to_gcs(
@@ -407,11 +422,14 @@ def _process_audio_in_background(
                                         decode=False,
                                     )
                                 except Exception as e:
-                                    worker_logger.error(f"Inworld TTS generation error: {e}")
+                                    worker_logger.error(
+                                        f"Inworld TTS generation error: {e}"
+                                    )
                                     return None
 
                             tasks = [
-                                generate_inworld(i) for i in range(request_dto.sample_count)
+                                generate_inworld(i)
+                                for i in range(request_dto.sample_count)
                             ]
                             results = await asyncio.gather(*tasks)
                             permanent_gcs_uris = [u for u in results if u]

@@ -96,7 +96,9 @@ def optimize_image_bytes(data: bytes, max_size: int = 1024) -> bytes:
         return data
 
 
-def _update_job_status_to_failed(media_item_id: int, error: Exception, worker_name: str):
+def _update_job_status_to_failed(
+    media_item_id: int, error: Exception, worker_name: str
+):
     """Helper function to update a media item status to FAILED in a fresh database session,
     used in case of worker initialization or event loop failures.
     """
@@ -107,7 +109,9 @@ def _update_job_status_to_failed(media_item_id: int, error: Exception, worker_na
     from src.common.schema.media_item_model import JobStatusEnum
 
     logger = logging.getLogger(__name__)
-    logger.info(f"Setting job {media_item_id} to FAILED due to outer exception in {worker_name}")
+    logger.info(
+        f"Setting job {media_item_id} to FAILED due to outer exception in {worker_name}"
+    )
 
     async def _async_update():
         async with WorkerDatabase() as db_factory:

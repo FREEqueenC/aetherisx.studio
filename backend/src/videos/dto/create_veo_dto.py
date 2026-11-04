@@ -13,7 +13,6 @@
 # limitations under the License.
 
 
-
 from pydantic import Field, field_validator, model_validator
 
 from src.common.base_dto import (
